@@ -1,0 +1,16 @@
+.DS_Store
+.Rhistory
+
+/data/.Rhistory
+/data/.DS_Store
+/data/HEFS
+
+/src/.Rhistory
+/src/.DS_Store
+
+/out
+
+*.nc
+*.RData
+*.rds
+*.zip
