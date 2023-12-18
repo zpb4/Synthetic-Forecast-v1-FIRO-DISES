@@ -1,6 +1,7 @@
 #Script to process csv HEFS data from RFC
 
 library(lubridate)
+library(stringr)
 
 print(paste('datapro start',Sys.time()))
 #---------------------Get the daily observations for each site ----------------------------
