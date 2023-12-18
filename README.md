@@ -1,4 +1,4 @@
-# Synthetic-Forecasts-v1-FIRO-DISES
+# Synthetic-Forecast-v1-FIRO-DISES
 Synthetic forecast model to support FIRO work under DISES funding. Version 1 is model developed in WRR manuscript, Brodeur et al. (2023) 'Synthetic forecast ensembles for evaluating Forecast Informed Reservoir Operations'
 
 - 'main' branch holds the basic model including observed data for the New Hogan site. HEFS data is stored on a zip file [here](https://www.hydroshare.org/resource/f63ead2d62414940a7d90acdc234a5d1/) and must be extracted to 'data' sub-repo to run the model.  
