@@ -4,11 +4,12 @@ rm(list=ls())
 library(fields)
 
 #----------------------------------------
-vers<-'bvar3-sep'
+vers<-'bvar1-sged'
 
 load("out/data_prep_rdata.RData")
-syn_hefs_forward <- readRDS(paste('out/syn_hefs_forward_',vers,'.rds',sep=''))
-ixx_sim <- readRDS('out/ixx_sim.rds') 
+#syn_hefs_forward <- readRDS(paste('out/syn_hefs_forward_',vers,'.rds',sep=''))
+syn_hefs_forward <- readRDS(paste('out/syn_hefs_forward_',vers,'_plot-ens.rds',sep=''))
+ixx_gen <- readRDS('out/ixx_gen.rds') 
 n_samp <- readRDS('out/n_samp.rds') 
 
 #################################################################
@@ -16,16 +17,16 @@ n_samp <- readRDS('out/n_samp.rds')
 
 ##############Ensemble Density Plots###############
 
-site<-'NHGC1'
-cur_site <- which(col_names==site)
+site<-'MSGC1L'
+cur_site <- which(site_names==site)
 
 
-obs_rank <- 4 #pick which obs event to plot (1 largest, 2 second largest, etc)
+obs_rank <- 5#pick which obs event to plot (1 largest, 2 second largest, etc)
 #get date for plot
 obs_date_loc <- which(obs[,cur_site]==sort(obs[,cur_site],decreasing=TRUE)[obs_rank])  #index for maximum observation
 obs_date <- ixx_obs[obs_date_loc]
 hefs_date_loc <- which(ixx_hefs==obs_date)
-syn_hefs_date_loc <- which(ixx_sim==obs_date)
+syn_hefs_date_loc <- which(ixx_gen==obs_date)
 
 num_plot_rows <- min(n_samp+1,4)
 par(mfcol=c(num_plot_rows,4),mar=c(3,3,1,1),mgp=c(3,.4,0))
@@ -136,7 +137,7 @@ if (n_samp<2) {
     obs_date <- ixx_obs[keep][obs_date_loc]
     obs_forward_date_loc <- which(ixx_obs_forward==obs_date)
     hefs_date_loc <- which(ixx_hefs==obs_date)
-    syn_hefs_date_loc <- which(ixx_sim==obs_date)
+    syn_hefs_date_loc <- which(ixx_gen==obs_date)
   
     for (ld_indx in 1:length(all_leads)) {
       ld <- all_leads[ld_indx]

@@ -1,4 +1,11 @@
 #Forecast Verification Functions
+fwd_forecast_rearrange<-function(forecast){
+  forecast_out<-array(0,dim(forecast))
+  for(i in 1:dim(forecast)[3]){
+    forecast_out[,(i+1):dim(forecast)[2],i]<-forecast[,1:(dim(forecast)[2]-i),i]
+  }
+  return(forecast_out)
+}
 
 ens_rank<-function(ens_forc,obs){
   f_sort<-sort(ens_forc)

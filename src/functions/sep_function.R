@@ -2,7 +2,6 @@
 library(gsl)
 library(fGarch)
 library(stats)
-library(doParallel)
 
 #helper functions
 kfun<-function(beta,alpha){
@@ -196,15 +195,17 @@ SEPfit_sigest<-function(x){
 
 forc_err_SEPfit<-function(err_mat,use_sigest,distn,seasonal,start_date,end_date,lv_out_yrs,parallel,use_mpi){
   if(use_mpi==FALSE){
+    library(doParallel)
     parallel::detectCores()
     n.cores <- parallel::detectCores()
     my.cluster<-try(getDefaultCluster())
-    if(class(my.cluster)=='try-error'){
+    if(class(my.cluster)=='try-error'|class(my.cluster)=='NULL'){
       my.cluster<-parallel::makeCluster(n.cores,type = 'PSOCK')}
     print(my.cluster)
     doParallel::registerDoParallel(cl = my.cluster)
     foreach::getDoParRegistered()}
   if(use_mpi==TRUE){
+    library(doMPI)
     cl <- startMPIcluster()
     registerDoMPI(cl)}
   

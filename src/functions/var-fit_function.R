@@ -1,12 +1,7 @@
 
-#library(fGarch) #required for SGED fit
 library(BigVAR)
-#library(rmgarch) #required for varxfit
 library(vars)
 library(bigtime)
-library(doParallel)
-library(Rmpi)
-library(doMPI)
 
 spVAR<-bigtime::sparseVAR
 
@@ -37,6 +32,7 @@ var_resids_fun<-function(err_mat,var_coef,lag,mean_vec,use_mean){
 var_fit<-function(err_mat,lag,var_mod,use_mean,seasonal,start_date,end_date,lv_out_yrs,parallel,use_mpi){
   ##parallelization code
   if(use_mpi==FALSE){
+    library(doParallel)
     parallel::detectCores()
     n.cores <- parallel::detectCores()
     my.cluster<-parallel::makeCluster(n.cores,type = 'PSOCK')
@@ -47,6 +43,7 @@ var_fit<-function(err_mat,lag,var_mod,use_mean,seasonal,start_date,end_date,lv_o
     foreach::getDoParRegistered()}
   
   if(use_mpi==TRUE){
+    library(doMPI)
     cl <- startMPIcluster()
     registerDoMPI(cl)}
 

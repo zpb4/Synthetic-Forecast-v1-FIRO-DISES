@@ -1,4 +1,4 @@
-
+library(abind)
 source('./src/functions/hybrid-loess-fit_fun.R')
 
 #function to rearrange forward looking forecast to obs-synched forecast
@@ -13,7 +13,73 @@ fwd_forecast_rearrange<-function(forecast){
 #Function to estimate conditional expectation of forecasts given observations
 #forecasts must be arranged in 'fwd look' format
 #derived based on ensemble mean or median of forecasts
-#
+fit_logreg<-function(obs,forecast,seasonal,start_date,end_date,lv_out_yrs){
+  idx<-seq(as.Date(start_date),as.Date(end_date),by='day')
+  ixx_all <- as.POSIXlt(seq(as.Date(start_date),as.Date(end_date),by='day'))
+  idx_lv_out<-c()
+  for(i in 1:length(lv_out_yrs)){
+    idx_lv_out<-c(idx_lv_out,which(idx==paste(lv_out_yrs[i]-1,'-10-01',sep='')):which(idx==paste(lv_out_yrs[i],'-09-30',sep='')))
+  }
+  ixx_fit<-ixx_all[-c(idx_lv_out)]
+  
+  #process obs and forecasts when only 1 site
+  if(is.null(dim(obs)[2])==TRUE){
+    obs_mat<-matrix(rep(obs,dim(forecast)[4]),ncol=dim(forecast)[4],byrow=F)
+    obs_mat_fit<-obs_mat[-c(idx_lv_out),]
+    forecast_fit<-forecast[1,,-c(idx_lv_out),]
+  }
+  
+  #concatenate across lead time dimension if more than one site
+  if(dim(obs)[2]>1){
+    obs_mat<-matrix(rep(obs[,1],dim(forecast)[4]),ncol=dim(forecast)[4],byrow=F)
+    obs_mat_fit<-obs_mat[-c(idx_lv_out),]
+    forecast_out<-forecast[1,,,]
+    forecast_fit<-forecast_out[,-c(idx_lv_out),]
+    for(i in 2:dim(obs)[2]){
+      obs_sset<-matrix(rep(obs[,i],dim(forecast)[4]),ncol=dim(forecast)[4],byrow=F)
+      obs_mat<-cbind(obs_mat,obs_sset)
+      obs_fit<-obs_sset[-c(idx_lv_out),]
+      obs_mat_fit<-cbind(obs_mat_fit,obs_fit)}
+    
+    for(i in 2:dim(obs)[2]){
+      forc<-forecast[i,,,]
+      forc_fit<-forc[,-c(idx_lv_out),]
+      forecast_fit<-abind(forecast_fit,forc_fit,along=3)
+      forecast_out<-abind(forecast_out,forc,along=3)}
+  }
+  
+  #determine seasonal subsets
+  season_list<-seasonal
+  
+  if(seasonal=='monthly'){
+    season_list<-vector('list',12)
+    for(i in 1:12){
+      season_list[[i]]<-i
+    }
+  }
+  
+  if(seasonal=='annual'){
+    season_list<-list(1:12)
+  }
+  
+  lreg_fit<-vector('list',length(season_list))
+  lreg_fit_sub<-vector('list',dim(forecast)[3])
+  
+  #fit hybrid LOESS model to the data (obs v forecasts)
+  for(i in 1:length(season_list)){
+    seas_all<-which(ixx_all$mon%in%(season_list[[i]]-1))
+    seas_fit<-which(ixx_fit$mon%in%(season_list[[i]]-1))
+    lreg_fit[[i]]<-lreg_fit_sub
+    #fit by month and lead time across both sites
+    for(k in 1:(dim(forecast_fit)[3])){
+      forc_vec<-as.vector(t(forecast_fit[,seas_fit,k]))
+      forc_vec[forc_vec>0]<-1
+      obs_vec<-rep(obs_mat_fit[seas_fit,k],dim(forecast_fit)[1])
+      lreg_fit[[i]][[k]]<-glm(forc_vec~obs_vec,family='binomial')$coefficients
+    }
+  }
+  return(lreg_fit)
+}
 
 fit_cexp<-function(obs,forecast,ctr,seasonal,start_date,end_date,lv_out_yrs){
   
@@ -25,10 +91,32 @@ fit_cexp<-function(obs,forecast,ctr,seasonal,start_date,end_date,lv_out_yrs){
   }
   ixx_fit<-ixx_all[-c(idx_lv_out)]
   
-  obs_mat<-matrix(rep(obs,dim(forecast)[3]),ncol=dim(forecast)[3],byrow=F)
-  obs_mat_fit<-obs_mat[-c(idx_lv_out),]
+  #process obs and forecasts when only 1 site
+  if(is.null(dim(obs)[2])==TRUE){
+    obs_mat<-matrix(rep(obs,dim(forecast)[4]),ncol=dim(forecast)[4],byrow=F)
+    obs_mat_fit<-obs_mat[-c(idx_lv_out),]
+    forecast_fit<-forecast[1,,-c(idx_lv_out),]
+  }
+
+  #concatenate across lead time dimension if more than one site
+  if(dim(obs)[2]>1){
+    obs_mat<-matrix(rep(obs[,1],dim(forecast)[4]),ncol=dim(forecast)[4],byrow=F)
+    obs_mat_fit<-obs_mat[-c(idx_lv_out),]
+    forecast_out<-forecast[1,,,]
+    forecast_fit<-forecast_out[,-c(idx_lv_out),]
+    for(i in 2:dim(obs)[2]){
+      obs_sset<-matrix(rep(obs[,i],dim(forecast)[4]),ncol=dim(forecast)[4],byrow=F)
+      obs_mat<-cbind(obs_mat,obs_sset)
+      obs_fit<-obs_sset[-c(idx_lv_out),]
+      obs_mat_fit<-cbind(obs_mat_fit,obs_fit)}
   
-  forecast_fit<-forecast[,-c(idx_lv_out),]
+    for(i in 2:dim(obs)[2]){
+      forc<-forecast[i,,,]
+      forc_fit<-forc[,-c(idx_lv_out),]
+      forecast_fit<-abind(forecast_fit,forc_fit,along=3)
+      forecast_out<-abind(forecast_out,forc,along=3)}
+  }
+    
 #determine seasonal subsets
 season_list<-seasonal
 
@@ -64,7 +152,7 @@ for(i in 1:length(season_list)){
   seas_fit<-which(ixx_fit$mon%in%(season_list[[i]]-1))
   cexp_fit[[i]]<-cexp_fit_sub
     #fit by month and lead time across both sites
-    for(k in 1:(dim(forecast)[3])){
+    for(k in 1:(dim(forecast_fit)[3])){
       #try symmetric (non-parametric) LOESS fit
       hy_fit<-try(hyb_loess_fit(obs_mat_fit[seas_fit,k],forc_ctr_mat[seas_fit,k],0.75,2,'symmetric'),T)
       #if that doesn't work, try a gaussian fit
@@ -91,10 +179,10 @@ forc_cexp[na_idx]<-obs_mat[na_idx]
 forc_cexp[neg_idx]<-obs_mat[neg_idx]
 
 #2b) calculate debiased errors as difference between conditional expectation and forecasts across lead times
-forc_err<-array(NA,dim(forecast))
+forc_err<-array(NA,dim(forecast_out))
 
-for(i in 1:dim(forecast)[1]){
-  forc_err[i,,]<-forc_cexp - forecast[i,,]
+for(i in 1:dim(forecast_out)[1]){
+  forc_err[i,,]<-forc_cexp - forecast_out[i,,]
 }
 
 return(list(cexp_fit,forc_cexp,forc_err))
@@ -113,8 +201,22 @@ linear_hsked_fit<-function(err_mat,cexp_mat,obs,scale_ref,seasonal,min_quantile,
   }
   ixx_fit<-ixx_all[-c(idx_lv_out)]
   
-  obs_mat<-matrix(rep(obs,dim(cexp_mat)[2]),ncol=dim(cexp_mat)[2],byrow=F)
-  obs_mat_fit<-obs_mat[-c(idx_lv_out),] 
+  #process obs and forecasts when only 1 site
+  if(is.null(dim(obs)[2])==TRUE){
+    obs_mat<-matrix(rep(obs,dim(cexp_mat)[2]),ncol=dim(cexp_mat)[2],byrow=F)
+    obs_mat_fit<-obs_mat[-c(idx_lv_out),]
+  }
+  
+  #concatenate across lead time dimension if more than one site
+  if(dim(obs)[2]>1){
+    obs_mat<-matrix(rep(obs[,1],dim(cexp_mat)[2]),ncol=dim(cexp_mat)[2],byrow=F)
+    obs_mat_fit<-obs_mat[-c(idx_lv_out),]
+    for(i in 2:dim(obs)[2]){
+      obs_sset<-matrix(rep(obs[,i],dim(cexp_mat)[2]),ncol=dim(cexp_mat)[2],byrow=F)
+      obs_mat<-cbind(obs_mat,obs_sset)
+      obs_fit<-obs_sset[-c(idx_lv_out),]
+      obs_mat_fit<-cbind(obs_mat_fit,obs_fit)}
+  } 
   
   cexp_mat_fit<-cexp_mat[-c(idx_lv_out),] 
   err_mat_fit<-err_mat[,-c(idx_lv_out),]

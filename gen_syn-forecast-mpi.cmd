@@ -4,7 +4,7 @@
 #SBATCH --job-name=synforc
 #SBATCH -p normal
 #SBATCH --export=ALL
-#SBATCH --nodes=2
+#SBATCH --nodes=4
 #SBATCH --exclusive
 #SBATCH --output=synforc.txt
 #SBATCH --ntasks-per-node=40

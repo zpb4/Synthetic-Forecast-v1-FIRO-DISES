@@ -7,10 +7,12 @@ library(ncdf4)
 unlink('./out/Qf-hefs.nc',recursive=TRUE)
 unlink('./out/Qf-syn.nc',recursive=TRUE)
 #----------------------------------------
+vers<-'bvar1-sged'
 
 load("./out/data_prep_rdata.RData")
-syn_hefs_forward <- readRDS('./out/syn_hefs_forward.rds')
-ixx_sim <- readRDS('./out/ixx_sim.rds') 
+#syn_hefs_forward <- readRDS('./out/syn_hefs_forward.rds')
+syn_hefs_forward <- readRDS(paste('out/syn_hefs_forward_',vers,'.rds',sep=''))
+ixx_gen <- readRDS('./out/ixx_gen.rds') 
 n_samp <- readRDS('./out/n_samp.rds') 
 
 #add a single entry dimension to match synthetic forecasts
@@ -42,7 +44,7 @@ shefs_out<-aperm(syn_hefs_forward,c(1,2,5,3,4))
 ens_dim<-ncdim_def('ensemble','',0:(dim(syn_hefs_forward)[1]-1))
 site_dim<-ncdim_def('site','',0:(dim(syn_hefs_forward)[2]-1))
 trace_dim<-ncdim_def('trace','',0:(dim(syn_hefs_forward)[3]-1))
-date_dim<-ncdim_def('date',paste('days since',as.character(ixx_sim[1]),'00:00:00'),0:(dim(syn_hefs_forward)[4]-1),calendar = 'proleptic_gregorian')
+date_dim<-ncdim_def('date',paste('days since',as.character(ixx_gen[1]),'00:00:00'),0:(dim(syn_hefs_forward)[4]-1),calendar = 'proleptic_gregorian')
 ld_dim<-ncdim_def('lead','',0:(dim(syn_hefs_forward)[5]-1))
 
 #write the variable to the netcdf file and save

@@ -15,3 +15,5 @@
 *.rds
 *.zip
 *.txt
+*.sh
+*.cmd

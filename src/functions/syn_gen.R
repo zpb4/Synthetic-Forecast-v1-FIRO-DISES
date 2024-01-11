@@ -1,6 +1,4 @@
 
-library(doParallel)
-library(abind)
 
 #function to rearrange forward looking forecast to obs-synched forecast
 rearrange_to_fwd_forecast<-function(forecast){
@@ -11,34 +9,46 @@ rearrange_to_fwd_forecast<-function(forecast){
   return(forecast_out)
 }
 
-syn_gen<-function(n_samp,obs,obs_idx,at_mat,sep_par,distn,cexp_fit,norm_fit,var_coefs,var_ar,lag,cumul_samp_span,use_mean,seasonal,fit_start,fit_end,gen_start,gen_end,use_mpi){
+logreg_pred<-function(x,coeffs){
+  p <- exp(coeffs[1] +  x * coeffs[2]) / (1 + exp(coeffs[1] +  x * coeffs[2]))
+  prd<-c()
+  for(i in 1:length(x)){
+    prd[i]<-rbinom(1,1,p)
+  }
+  return(prd)
+}
+
+syn_gen<-function(n_samp,obs,knn_samps,obs_idx,at_mat,sep_par,distn,cexp_fit,norm_fit,sd_arr,lreg_coefs,var_coefs,var_ar,lag,cumul_samp_span,use_mean,seasonal,fit_start,fit_end,gen_start,gen_end,use_mpi){
 
 source('./src/functions/hybrid-loess-fit_fun.R')
 source('./src/functions/sep_function.R')
   
 #parallelization code
 if(use_mpi==FALSE){
+  library(doParallel)
   parallel::detectCores()
   n.cores <- parallel::detectCores()
   my.cluster<-try(getDefaultCluster())
-  if(class(my.cluster)=='try-error'){
+  if(class(my.cluster)=='try-error'|class(my.cluster)=='NULL'){
     my.cluster<-parallel::makeCluster(n.cores,type = 'PSOCK')}
   print(my.cluster)
   doParallel::registerDoParallel(cl = my.cluster)
   foreach::getDoParRegistered()}
 if(use_mpi==TRUE){
+  library(doMPI)
   cl <- startMPIcluster()
   registerDoMPI(cl)}
 
 #model specifications
-ar <- lag #lag order
+ar_lag <- lag #lag order
 ens_num <- dim(at_mat)[1]
-leads <- dim(at_mat)[3]
-no_sites <- n_sites #NHG and MSG
-n<- n_samp #number of simulations
-res_env<-10 #envelope for generated residuals (must be less than X times absolute value of empirical)
-obs_env<-3 #envelope for residuals during simulation (ie after VAR application), ensure simulations less than X times max obs
-span<-cumul_samp_span
+Kdim <- dim(at_mat)[3]
+if(is.null(dim(obs)[2])==TRUE){n_sites <- 1}else{n_sites <- dim(obs)[2]}
+leads <- Kdim/n_sites
+n <- n_samp #number of simulations
+res_env<-10 #envelope for generated residuals (must be less than 'res_env' times absolute value of empirical)
+obs_env<-3 #envelope for synthetic forecasts during simulation, ensure simulations less than 'obs_env' times max obs
+span<-cumul_samp_span #
 
 #date time indices
 #fitted period
@@ -63,27 +73,23 @@ if(seasonal=='annual'){
   season_list<-list(1:12)
 }
 
-#observations for fit and generation periods
-obs_fit<-obs[which(obs_idx==fit_start):which(obs_idx==fit_end)]
-obs_gen<-obs[which(obs_idx==gen_start):which(obs_idx==gen_end)]
-
 #observation arrays that match forecast dimension nxK
-obs_mat<-matrix(rep(obs,dim(at_mat)[3]),ncol=dim(at_mat)[3])
-obs_mat_fit<-obs_mat[which(obs_idx==fit_start):which(obs_idx==fit_end),]
-obs_mat_gen<-obs_mat[which(obs_idx==gen_start):which(obs_idx==gen_end),]
-
-#create cumulative sampling vector 
-cumul_samp_fun<-function(x,span){
-  out<-c()
-  for(i in 1:length(x)){
-    idx<-i:min(length(x),(i+span))
-    out[i]<-sum(x[idx])
-  }
-  return(out)
+#process obs and forecasts when only 1 site
+if(is.null(dim(obs)[2])==TRUE){
+  obs_mat<-matrix(rep(obs,dim(at_mat)[3]),ncol=dim(at_mat)[3],byrow=F)
 }
 
-obs_fit_samp<-cumul_samp_fun(obs_fit,span=span)
-obs_gen_samp<-cumul_samp_fun(obs_gen,span=span)
+#concatenate across lead time dimension if more than one site
+if(dim(obs)[2]>1){
+  ncols=dim(at_mat)[3]/dim(obs)[2]
+  obs_mat<-matrix(rep(obs[,1],ncols),ncol=ncols,byrow=F)
+  for(i in 2:dim(obs)[2]){
+    obs_sset<-matrix(rep(obs[,i],ncols),ncol=ncols,byrow=F)
+    obs_mat<-cbind(obs_mat,obs_sset)}
+  } 
+  
+obs_mat_fit<-obs_mat[which(obs_idx==fit_start):which(obs_idx==fit_end),]
+obs_mat_gen<-obs_mat[which(obs_idx==gen_start):which(obs_idx==gen_end),]
 
 #generate conditional expectation matrix
 cexp_gen<-array(NA,dim(obs_mat_gen))
@@ -121,44 +127,16 @@ if(seasonal=='monthly'){
   mo_seq<-mo_seq+1 #set to 1 indexed vector
 }
 
-#1c) kNN and kernel weighted sampling specification
-if(seasonal=='monthly'){
-  knn<-round(sqrt(length(which(ixx_gen$mon==1))))
-}
-tot<-sum(rep(1,knn) / 1:knn)
-wts<-rep(1,knn) / 1:knn / rep(tot,knn)
-
 #2) Synthetic forecast generations
 
-
 #parallel generation across samples
-synflow_out <- foreach(m = 1:n,.combine='c',.inorder=F,.packages=c('fGarch'),.export=c('sep_samp','sep_quant','lin_mod')) %dopar% {
+synflow_out <- foreach(m = 1:n,.combine='c',.inorder=F,.packages=c('fGarch'),.export=c('sep_samp','sep_quant','lin_mod','logreg_pred')) %dopar% {
 
   #arrays to store each run
   syn_flow<-array(NA,c(dim(at_mat)[1],length(ixx_gen),dim(at_mat)[3]))
   syn_err<-array(NA,c(dim(syn_flow)))
   
-  #kNN sampling procedure (simulated from fitted period)
-  #kNN index common across ensemble members
-  knn_lst<-vector('list',12)
-  
-  for(i in 1:length(season_list)){
-    knn_vec<-c()
-    seas_fit<-which(ixx_fit$mon%in%(season_list[[i]]-1))
-    seas_gen<-which(ixx_gen$mon%in%(season_list[[i]]-1))
-    gen_obs<-obs_gen_samp[seas_gen]
-    fit_obs<-obs_fit_samp[seas_fit]
-    for(j in 1:length(gen_obs)){
-        knn_samp<-abs(fit_obs-gen_obs[j])
-        #ob_smp<-matrix(rep(ob_smp,length(seas_fit)),ncol=no_sites,byrow=T)
-        #y<-sqrt(apply((ob_smp - ob)^2,1,sum)) #find NEP closest by Euclidean distance
-        knn_sort<-sort(knn_samp,index.return=T)
-        id<-sample(knn_sort$ix[1:knn],1,prob=wts)
-        knn_vec[j]<-id
-    }
-  knn_lst[[i]]<-knn_vec
-  }
-  
+  knn_lst<-knn_samps[[m]]
   
   for(e in 1:dim(at_mat)[1]){
     
@@ -167,6 +145,7 @@ synflow_out <- foreach(m = 1:n,.combine='c',.inorder=F,.packages=c('fGarch'),.ex
 
     for(i in 1:length(season_list)){
       seas_fit<-which(ixx_fit$mon%in%(season_list[[i]]-1))
+      seas_gen<-which(ixx_gen$mon%in%(season_list[[i]]-1))
       inp_mat<-at_mat[e,seas_fit,]
       empcop<-apply(inp_mat,2,function(x){rank(x,ties.method = 'random')})
       syn_empcop_mat<-array(NA,c(dim(inp_mat)[1],dim(inp_mat)[2]))
@@ -186,13 +165,13 @@ synflow_out <- foreach(m = 1:n,.combine='c',.inorder=F,.packages=c('fGarch'),.ex
         }
       }
       id<-knn_lst[[i]]
-      syn_empcop_knn_samp<-array(NA,dim(syn_empcop_mat))
+      syn_empcop_knn_samp<-array(NA,c(length(ixx_gen),dim(inp_mat)[2]))
       syn_empcop_knn_samp<-syn_empcop_mat[id,]
       syn_empcop_knn[[i]]<-syn_empcop_knn_samp
     }
 
     #specify starting residuals for primary generations
-    app_mat<-syn_empcop_knn[[mo_seq[1]]][1:ar,]
+    app_mat<-syn_empcop_knn[[mo_seq[1]]][1:ar_lag,]
     
     #generation proceeds sequentially along months to maintain VAR continuity
     for(i in 1:length(yr_seq)){
@@ -201,11 +180,12 @@ synflow_out <- foreach(m = 1:n,.combine='c',.inorder=F,.packages=c('fGarch'),.ex
       var_coef<-var_coefs[e,mo_seq[i],,]
       seas_gen<-which(ixx_gen$mon==(mo_seq[i]-1) & ixx_gen$year==yr_seq[i])
       cexp<-cexp_gen[seas_gen,]
+      actual_obs<-obs_mat_gen[seas_gen,]
       if(is.null(dim(syn_at_mat))==TRUE){
         syn_at_mat<-t(matrix(syn_at_mat))
         cexp<-t(matrix(cexp))
+        actual_obs<-t(matrix(actual_obs))
       }
-      actual_obs<-obs_mat_gen[seas_gen,]
       
       #establish maximum (historical) observation for generated envelope calculations
       seas_mth_sset<-which(obs_idx$mon==(mo_seq[i]-1))
@@ -214,45 +194,46 @@ synflow_out <- foreach(m = 1:n,.combine='c',.inorder=F,.packages=c('fGarch'),.ex
       
       #arrays to store simulated data
       #matrix for VAR and 'denormalized' residuals
-      syn_resid_mat<-matrix(0,ncol=dim(syn_at_mat)[2],nrow=(dim(syn_at_mat)[1]+ar))
+      syn_resid_mat<-matrix(0,ncol=dim(syn_at_mat)[2],nrow=(dim(syn_at_mat)[1]+ar_lag))
       #matrix to store VAR residuals separately (VAR is fitted to normalized residuals)
-      syn_var_mat<-matrix(0,ncol=dim(syn_at_mat)[2],nrow=(dim(syn_at_mat)[1]+ar))
+      syn_var_mat<-matrix(0,ncol=dim(syn_at_mat)[2],nrow=(dim(syn_at_mat)[1]+ar_lag))
       #maintain previously generated (out to 'ar' lag) residuals from preceding month
-      syn_var_mat[1:ar,]<-app_mat
+      syn_var_mat[1:ar_lag,]<-app_mat
       
       #monthly VAR residual and denormalized residual (ie synthetic forecast errors) generation
-      for(j in (ar+1):(dim(syn_at_mat)[1]+ar)){
+      for(j in (ar_lag+1):(dim(syn_at_mat)[1]+ar_lag)){
         #simulate rows of new normalized residuals from VAR coefficients
         if(var_ar=='var'){
           if(use_mean==FALSE){
-            raw_var_res<-c(t(syn_var_mat[(j-1):(j-ar),])) %*% t(var_coef) + syn_at_mat[(j-ar),]}
+            raw_var_res<-c(t(syn_var_mat[(j-1):(j-ar_lag),])) %*% t(var_coef) + syn_at_mat[(j-ar_lag),]}
           if(use_mean==TRUE){
-            raw_var_res<-c(t(syn_var_mat[(j-1):(j-ar),]),1) %*% t(var_coef) + syn_at_mat[(j-ar),]}
+            raw_var_res<-c(t(syn_var_mat[(j-1):(j-ar_lag),]),1) %*% t(var_coef) + syn_at_mat[(j-ar_lag),]}
           var_res<-raw_var_res[1,]
         }
         #run this if AR(p) model
         if(var_ar=='ar'){
           if(use_mean==FALSE){
-            raw_var_res<-apply(syn_var_mat[(j-1):(j-ar),] * t(var_coef),2,sum) + syn_at_mat[(j-ar),]}
+            raw_var_res<-apply(syn_var_mat[(j-1):(j-ar_lag),] * t(var_coef),2,sum) + syn_at_mat[(j-ar_lag),]}
           if(use_mean==TRUE){
-            raw_var_res<-apply(cbind(syn_var_mat[(j-1):(j-ar),],rep(1,dim(syn_at_mat)[2])) * t(var_coef),2,sum) + syn_at_mat[(j-ar),]}
+            raw_var_res<-apply(cbind(syn_var_mat[(j-1):(j-ar_lag),],rep(1,dim(syn_at_mat)[2])) * t(var_coef),2,sum) + syn_at_mat[(j-ar_lag),]}
           var_res<-raw_var_res
         }
         
         #corresponding row of conditional expectation matrix
-        zero_sim_ref<-cexp[(j-ar),]
+        zero_sim_ref<-cexp[(j-ar_lag),]
+        act_obs<-actual_obs[(j-ar_lag),]
         
         #replace extreme VAR residuals if would create exceedingly large simulation values (> specified X times max obs)
         extr_idx<-which(((zero_sim_ref-var_res)-obs_env*max_vec)>0)
         var_res[extr_idx]<-rnorm(length(extr_idx))
         
         #zero-truncate VAR residuals to prevent auto-correlation in negative simulation space
-        sub_zero_idx<-which((zero_sim_ref-var_res)<0)
-        var_res[sub_zero_idx]<-zero_sim_ref[sub_zero_idx]
-        syn_var_mat[j,]<-var_res
+        ##sub_zero_idx<-which((zero_sim_ref-var_res)<0)
+        ##var_res[sub_zero_idx]<-zero_sim_ref[sub_zero_idx]
+        ##syn_var_mat[j,]<-var_res
         
         #denormalize (scale) residuals
-        hsked_var<-cexp[(j-ar),]
+        hsked_var<-cexp[(j-ar_lag),]
         norm_val<-c()
         #normalization value calculated per time step, per site
         for(k in 1:dim(syn_at_mat)[2]){
@@ -261,15 +242,35 @@ synflow_out <- foreach(m = 1:n,.combine='c',.inorder=F,.packages=c('fGarch'),.ex
         }
         raw_err<-var_res*norm_val
         
-        #zero truncate denormalized residuals (syn forecast errors)
-        sub_zero_idx<-which((zero_sim_ref-raw_err)<0)
-        raw_err[sub_zero_idx]<-zero_sim_ref[sub_zero_idx]
+        #replace extreme raw errors if would create exceedingly large simulation values (> specified X times max obs)
+        extr_idx<-which(((zero_sim_ref-raw_err)-obs_env*max_vec)>0)
+        raw_err[extr_idx]<-rnorm(length(extr_idx))*mean(sd_arr[mo_seq[i],])
+        
+        #apply intermittency model
+        for(k in 1:dim(syn_at_mat)[2]){
+          if((zero_sim_ref[k]-raw_err[k])<=0){
+            if(distn=='sep'){
+              samp_vec<-sep_samp(100,theta=sep_par[e,mo_seq[i],k,1],sigma=sep_par[e,mo_seq[i],k,2],beta=sep_par[e,mo_seq[i],k,3],alpha=sep_par[e,mo_seq[i],k,4])*norm_val[k]}
+            if(distn=='sged'){
+              samp_vec<-rsged(100,mean=sep_par[e,mo_seq[i],k,1],sd=sep_par[e,mo_seq[i],k,2],nu=sep_par[e,mo_seq[i],k,3],xi=sep_par[e,mo_seq[i],k,4])*norm_val[k]}
+            int_pred<-try(logreg_pred(act_obs[k],lreg_coefs[[mo_seq[i]]][[k]]),silent=TRUE)
+            if(class(int_pred)=='try-error'|class(int_pred)=='integer'){int_pred<-0}
+            if(int_pred==0){raw_err[k]<-zero_sim_ref[k]}
+            if(int_pred==1){
+              new_res<-try(sample(samp_vec[samp_vec<zero_sim_ref[k]],1),silent=TRUE)
+              if(class(new_res)=='try-error'){new_res<-runif(1)*zero_sim_ref[k]}
+              raw_err[k]<-new_res}
+            var_res[k]<-raw_err[k]/norm_val[k]
+            if(is.na(var_res[k])==T|var_res[k]==Inf|var_res[k]==-Inf){var_res[k]<-raw_err[k]}
+          }
+        }
         syn_resid_mat[j,]<-raw_err
+        syn_var_mat[j,]<-var_res
       }
       
-    syn_err[e,seas_gen,]<-syn_resid_mat[(ar+1):j,]
-    syn_flow[e,seas_gen,]<-cexp_gen[seas_gen,] - syn_resid_mat[(ar+1):j,]
-    app_mat<-syn_var_mat[(j-ar+1):j,]
+    syn_err[e,seas_gen,]<-syn_resid_mat[(ar_lag+1):j,]
+    syn_flow[e,seas_gen,]<-cexp_gen[seas_gen,] - syn_resid_mat[(ar_lag+1):j,]
+    app_mat<-syn_var_mat[(j-ar_lag+1):j,]
     }
   }
 return(list(syn_flow,syn_err))
@@ -277,13 +278,16 @@ return(list(syn_flow,syn_err))
 }
 
 #store concatenated output to single RDS array
-syn_flow_comb<-array(NA,c(n,dim(at_mat)[1],length(ixx_gen),dim(at_mat)[3]))
-syn_err_comb<-array(NA,c(n,dim(at_mat)[1],length(ixx_gen),dim(at_mat)[3]))
+syn_flow_comb<-array(NA,c(n,n_sites,dim(at_mat)[1],length(ixx_gen),leads))
+syn_err_comb<-array(NA,c(n,n_sites,dim(at_mat)[1],length(ixx_gen),leads))
 
 for(m in 1:n){
   #rearrange flow forecast to forward looking format
-  syn_flow_comb[m,,,]<-rearrange_to_fwd_forecast(synflow_out[[m*2-1]])
-  syn_err_comb[m,,,]<-synflow_out[[m*2]]
+  for(s in 1:n_sites){
+    col_idx<-(leads*(s-1)+1):(leads*s)
+    syn_flow_comb[m,s,,,]<-rearrange_to_fwd_forecast(synflow_out[[m*2-1]][,,col_idx])
+    syn_err_comb[m,s,,,]<-synflow_out[[m*2]][,,col_idx]
+  }
 }
 
 return(list(syn_flow_comb,syn_err_comb))
