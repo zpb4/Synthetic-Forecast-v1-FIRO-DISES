@@ -1,5 +1,5 @@
 # Synthetic-Forecast-v1-FIRO-DISES
-Synthetic forecast model to support FIRO work under DISES funding. Version 1 is model developed in WRR manuscript, Brodeur et al. (2023) 'Synthetic forecast ensembles for evaluating Forecast Informed Reservoir Operations'
+Synthetic forecast model to support FIRO work under DISES funding. Version 1 is model developed in WRR manuscript, Brodeur et al. (2024) 'Synthetic forecast ensembles for evaluating Forecast Informed Reservoir Operations'
    
 ---
 Setup for forecast generation at Prado dam system (ADO), including main reservoir inflow (ADOC1). HEFS data is stored on a zip file [here](https://www.hydroshare.org/resource/b6788237717c41e0bcc69bcaa851694f/). Starting user-defined settings are:
