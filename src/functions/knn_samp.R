@@ -1,7 +1,7 @@
 
 
 
-knn_samp<-function(n_samp,obs,obs_idx,cumul_samp_span,seasonal,fit_start,fit_end,gen_start,gen_end,use_mpi){
+knn_samp<-function(n_samp,obs,obs_idx,cumul_samp_span,seasonal,fit_start,fit_end,gen_start,gen_end,leave_out_years,use_mpi){
   
   #parallelization code
   if(use_mpi==FALSE){
@@ -25,8 +25,22 @@ knn_samp<-function(n_samp,obs,obs_idx,cumul_samp_span,seasonal,fit_start,fit_end
   
   #date time indices
   #fitted period
-  ix_fit<-seq(as.Date(fit_start),as.Date(fit_end),'day')
-  ixx_fit<-as.POSIXlt(ix_fit)
+  ixx_fit_all <- as.POSIXlt(seq(as.Date(fit_start),as.Date(fit_end),by='day'))
+  ixx_obs <- as.POSIXlt(seq(as.Date(ixx_obs[1]),as.Date(ixx_obs[length(ixx_obs)]),by='day'))
+  ixx_hefs <- as.POSIXlt(seq(as.Date(ixx_hefs[1]),as.Date(ixx_hefs[length(ixx_hefs)]),by='day'))
+  
+  wy_fun<-function(date_vec){
+    wy_vec <- date_vec$year
+    wy_vec[date_vec$mo%in%c(9,10,11)] <- wy_vec[date_vec$mo%in%c(9,10,11)]+1
+    date_vec_wy <- date_vec
+    date_vec_wy$year <- wy_vec
+    return(date_vec_wy)
+  }
+  
+  ixx_fit_all_wy <- wy_fun(ixx_fit_all)
+  
+  trn_idx <- !(ixx_fit_all_wy$year%in%(leave_out_years-1900))
+  ixx_fit <- ixx_fit_all[trn_idx] #fit years excluding leave out years
   
   #generation period
   ix_gen<-seq(as.Date(gen_start),as.Date(gen_end),'day') 
@@ -47,8 +61,8 @@ knn_samp<-function(n_samp,obs,obs_idx,cumul_samp_span,seasonal,fit_start,fit_end
   }
   
   #observations for fit and generation periods
-  obs_fit<-obs[which(obs_idx==fit_start):which(obs_idx==fit_end)]
-  obs_gen<-obs[which(obs_idx==gen_start):which(obs_idx==gen_end)]
+  obs_fit<-obs[ixx_obs%in%ixx_fit]
+  obs_gen<-obs[ixx_obs%in%ixx_gen]
   
   #create cumulative sampling vector 
   cumul_samp_fun<-function(x,span){
@@ -82,7 +96,7 @@ knn_samp<-function(n_samp,obs,obs_idx,cumul_samp_span,seasonal,fit_start,fit_end
   #kNN index common across ensemble members
   knn_out<-foreach(m = 1:n,.inorder=F)%dopar%{
     knn_lst<-vector('list',12)
-
+    set.seed(m)
     for(i in 1:length(season_list)){
       knn_vec<-c()
       seas_fit<-which(ixx_fit$mon%in%(season_list[[i]]-1))

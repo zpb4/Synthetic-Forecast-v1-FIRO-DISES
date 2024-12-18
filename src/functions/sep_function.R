@@ -210,15 +210,31 @@ forc_err_SEPfit<-function(err_mat,use_sigest,distn,seasonal,start_date,end_date,
     registerDoMPI(cl)}
   
   #date index
-  idx<-seq(as.Date(start_date),as.Date(end_date),by='day')
-  ixx_all <- as.POSIXlt(seq(as.Date(start_date),as.Date(end_date),by='day'))
-  idx_lv_out<-c()
-  for(i in 1:length(lv_out_yrs)){
-    idx_lv_out<-c(idx_lv_out,which(idx==paste(lv_out_yrs[i]-1,'-10-01',sep='')):which(idx==paste(lv_out_yrs[i],'-09-30',sep='')))
-  }
-  ixx_fit<-ixx_all[-c(idx_lv_out)]
+  ixx_fit_all <- as.POSIXlt(seq(as.Date(start_date),as.Date(end_date),by='day'))
   
-  err_mat_fit<-err_mat[,-c(idx_lv_out),]
+  wy_fun<-function(date_vec){
+    wy_vec <- date_vec$year
+    wy_vec[date_vec$mo%in%c(9,10,11)] <- wy_vec[date_vec$mo%in%c(9,10,11)]+1
+    date_vec_wy <- date_vec
+    date_vec_wy$year <- wy_vec
+    return(date_vec_wy)
+  }
+  
+  ixx_fit_all_wy <- wy_fun(ixx_fit_all)
+  
+  trn_idx <- !(ixx_fit_all_wy$year%in%(leave_out_years-1900))
+  ixx_fit <- ixx_fit_all[trn_idx] #fit years excluding leave out years
+  
+  ixx_fit_all <- as.POSIXlt(seq(as.Date(fit_start),as.Date(fit_end),by='day'))
+  ixx_obs <- as.POSIXlt(seq(as.Date(ixx_obs[1]),as.Date(ixx_obs[length(ixx_obs)]),by='day'))
+  ixx_hefs <- as.POSIXlt(seq(as.Date(ixx_hefs[1]),as.Date(ixx_hefs[length(ixx_hefs)]),by='day'))
+  
+  n_sites = dim(err_mat)[1]
+  n_ens = dim(err_mat)[2]
+  n_hefs = dim(err_mat)[3]
+  n_lds = dim(err_mat)[4]
+  
+  err_mat_fit<-err_mat[,,ixx_fit_all%in%ixx_fit,,drop=FALSE]
   
   season_list<-seasonal
   
@@ -233,42 +249,46 @@ forc_err_SEPfit<-function(err_mat,use_sigest,distn,seasonal,start_date,end_date,
     season_list<-list(1:12)
   }
   
-  sep_params <- array(NA,c(dim(err_mat)[1],length(season_list),dim(err_mat)[3],4))
+  sep_params <- array(NA,c(n_sites,n_ens,length(season_list),n_lds,4))
   
   if(distn=='sep'){
   if(parallel=='FALSE'){
-    for(e in 1:dim(err_mat)[1]){
-      for(i in 1:length(season_list)){
-        seas_all<-which(ixx_all$mon%in%(season_list[[i]]-1))
-        seas_fit<-which(ixx_fit$mon%in%(season_list[[i]]-1))
-        for(k in 1:dim(err_mat)[3]){
-          if(use_sigest=='FALSE'){
-            sep_params[e,i,k,]<-SEPfit(err_mat_fit[e,seas_fit,k])}
-          if(use_sigest=='TRUE'){
-            sep_params[e,i,k,]<-SEPfit_sigest(err_mat_fit[e,seas_fit,k])}
+    for(j in 1:n_sites){
+      for(e in 1:n_ens){
+        for(i in 1:length(season_list)){
+          seas_all<-which(ixx_fit_all$mon%in%(season_list[[i]]-1))
+          seas_fit<-which(ixx_fit$mon%in%(season_list[[i]]-1))
+          for(k in 1:n_lds){
+            if(use_sigest=='FALSE'){
+              sep_params[j,e,i,k,]<-SEPfit(err_mat_fit[j,e,seas_fit,k])}
+            if(use_sigest=='TRUE'){
+              sep_params[j,e,i,k,]<-SEPfit_sigest(err_mat_fit[j,e,seas_fit,k])}
+          }
         }
       }
     }
   }
 
   if(parallel=='TRUE'){
-    out<-foreach(e = 1:dim(err_mat)[1],.combine='c',.export=c('SEPfit','SEPfit_sigest','sep_mle','sep_mle_sigest','sep_pdf','sep_sigma_est','kfun','zfun')) %dopar% {
-      sep_par<-array(NA,c(dim(sep_params)[2],dim(sep_params)[3],dim(sep_params)[4]))
-      for(i in 1:length(season_list)){
-        seas_all<-which(ixx_all$mon%in%(season_list[[i]]-1))
-        seas_fit<-which(ixx_fit$mon%in%(season_list[[i]]-1))
-        for(k in 1:dim(err_mat)[3]){
-          if(use_sigest=='FALSE'){
-            sep_par[i,k,]<-SEPfit(err_mat_fit[e,seas_fit,k])}
-          if(use_sigest=='TRUE'){
-            sep_par[i,k,]<-SEPfit_sigest(err_mat_fit[e,seas_fit,k])}
+    for(j in 1:n_sites){
+      out<-foreach(e = 1:n_ens,.combine='c',.export=c('SEPfit','SEPfit_sigest','sep_mle','sep_mle_sigest','sep_pdf','sep_sigma_est','kfun','zfun')) %dopar% {
+        sep_par<-array(NA,c(dim(sep_params)[3],dim(sep_params)[4],dim(sep_params)[5]))
+        for(i in 1:length(season_list)){
+          seas_all<-which(ixx_fit_all$mon%in%(season_list[[i]]-1))
+          seas_fit<-which(ixx_fit$mon%in%(season_list[[i]]-1))
+          for(k in 1:n_lds){
+            if(use_sigest=='FALSE'){
+              sep_par[i,k,]<-SEPfit(err_mat_fit[j,e,seas_fit,k])}
+            if(use_sigest=='TRUE'){
+              sep_par[i,k,]<-SEPfit_sigest(err_mat_fit[j,e,seas_fit,k])}
+          }
         }
+        return(list(sep_par))
       }
-      return(list(sep_par))
-    }
   
-    for(e in 1:dim(err_mat)[1]){
-      sep_params[e,,,]<-out[[e]]
+      for(e in 1:dim(err_mat)[1]){
+        sep_params[j,e,,,]<-out[[e]]
+      }
     }
   }
   }
@@ -276,41 +296,43 @@ forc_err_SEPfit<-function(err_mat,use_sigest,distn,seasonal,start_date,end_date,
   if(distn=='sged'){
     
   if(parallel=='FALSE'){
-    for(e in 1:dim(err_mat)[1]){
-      for(i in 1:length(season_list)){
-        seas_all<-which(ixx_all$mon%in%(season_list[[i]]-1))
-        seas_fit<-which(ixx_fit$mon%in%(season_list[[i]]-1))
-        for(k in 1:dim(err_mat)[3]){
-          if(use_sigest=='FALSE'){
-            sep_params[e,i,k,]<-sgedFit(err_mat_fit[e,seas_fit,k])$par}
-          if(use_sigest=='TRUE'){
-            sep_params[e,i,k,]<-sgedFit(err_mat_fit[e,seas_fit,k])$par}
+    for(j in 1:n_sites){
+      for(e in 1:n_ens){
+        for(i in 1:length(season_list)){
+          seas_all<-which(ixx_fit_all$mon%in%(season_list[[i]]-1))
+          seas_fit<-which(ixx_fit$mon%in%(season_list[[i]]-1))
+          for(k in 1:n_lds){
+            sep_params[j,e,i,k,]<-sgedFit(err_mat_fit[j,e,seas_fit,k])$par
+          }
         }
       }
     }
   }
   
   if(parallel=='TRUE'){
-    out<-foreach(e = 1:dim(err_mat)[1],.combine='c',.packages=c('fGarch')) %dopar% {
-      sep_par<-array(NA,c(dim(sep_params)[2],dim(sep_params)[3],dim(sep_params)[4]))
-      for(i in 1:length(season_list)){
-        seas_all<-which(ixx_all$mon%in%(season_list[[i]]-1))
-        seas_fit<-which(ixx_fit$mon%in%(season_list[[i]]-1))
-        for(k in 1:dim(err_mat)[3]){
-          if(use_sigest=='FALSE'){
-            sep_par[i,k,]<-sgedFit(err_mat_fit[e,seas_fit,k])$par}
-          if(use_sigest=='TRUE'){
-            sep_par[i,k,]<-sgedFit(err_mat_fit[e,seas_fit,k])$par}
+    for(j in 1:n_sites){
+      out<-foreach(e = 1:n_ens,.combine='c',.packages=c('fGarch')) %dopar% {
+        sep_par<-array(NA,c(dim(sep_params)[3],dim(sep_params)[4],dim(sep_params)[5]))
+        for(i in 1:length(season_list)){
+          seas_all<-which(ixx_fit_all$mon%in%(season_list[[i]]-1))
+          seas_fit<-which(ixx_fit$mon%in%(season_list[[i]]-1))
+          for(k in 1:n_lds){
+            if(use_sigest=='FALSE'){
+              sep_par[i,k,]<-sgedFit(err_mat_fit[j,e,seas_fit,k])$par}
+            if(use_sigest=='TRUE'){
+              sep_par[i,k,]<-sgedFit(err_mat_fit[j,e,seas_fit,k])$par}
+          }
         }
+        return(list(sep_par))
       }
-      return(list(sep_par))
-    }
     
-    for(e in 1:dim(err_mat)[1]){
-      sep_params[e,,,]<-out[[e]]
+      for(e in 1:n_ens){
+      sep_params[j,e,,,]<-out[[e]]
+      }
     }
   }
   }
+  
   return(sep_params)
   
   if(use_mpi==FALSE){
