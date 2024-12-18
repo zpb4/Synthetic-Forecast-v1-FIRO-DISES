@@ -30,8 +30,8 @@ obs <- subset(obs,select=col_names)
 
 #create a directory to store daily forecast .csv files for HEFS
 for(sites in site_names){
-  if (!dir.exists(paste('./out/',loc,'/HEFS/',sites,sep=''))) {
-    dir.create(paste('./out/',loc,'/HEFS/',sites,sep=''),recursive=T)
+  if (!dir.exists(paste('./out/',loc,'/HEFS86/',sites,sep=''))) {
+    dir.create(paste('./out/',loc,'/HEFS86/',sites,sep=''),recursive=T)
   }
 }
 #------------------------------------------------------------------------------------------
@@ -50,15 +50,15 @@ for(sites in site_names){
 #7) the first column includes the date, and all other columns include forecasts for different ensemble members
 
 #names of HEFS folders
-folder_list <- list.files(paste('./data/',loc,'/HEFS',sep=''))
+folder_list <- list.files(paste('./data/',loc,'/HEFS86',sep=''))
 
 #get metadata for the forecasts
-all_files <- list.files(paste('./data/',loc,'/HEFS/',folder_list[1],'/',sep=""))
+all_files <- list.files(paste('./data/',loc,'/HEFS86/',folder_list[1],'/',sep=""))
 toskip <- 0
-temp <- read.csv(paste('./data/',loc,'/HEFS/',folder_list[1],'/',all_files[1],sep=""),header=TRUE,skip=toskip)
+temp <- read.csv(paste('./data/',loc,'/HEFS86/',folder_list[1],'/',all_files[1],sep=""),header=TRUE,skip=toskip)
 if(!is.numeric(temp[1,2])) {
   toskip <- toskip + 1
-  temp <- read.csv(paste('./data/',loc,'/HEFS/',folder_list[1],'/',all_files[1],sep=""),header=TRUE,skip=toskip)
+  temp <- read.csv(paste('./data/',loc,'/HEFS86/',folder_list[1],'/',all_files[1],sep=""),header=TRUE,skip=toskip)
 }
 #the first row is for the current hour (12 GMT), so we drop that one
 if(str_split(temp$X[1],pattern=' ')[[1]][2]=='12:00:00'){
@@ -88,11 +88,11 @@ hefs_forward <- array(NA,c(n_sites,n_ens,n_hefs,leads))
 for(i in 1:n_sites){
   
   #get files for current site
-  all_files <- list.files(paste('./data/',loc,'/HEFS/',folder_list[i],'/',sep=""))
+  all_files <- list.files(paste('./data/',loc,'/HEFS86/',folder_list[i],'/',sep=""))
   
   for (j in 1:n_hefs) {
     cur_file <- grep(substr(HEFS_dates[j],1,8),all_files)
-    temp <- read.csv(paste('./data/',loc,'/HEFS/',folder_list[i],'/',all_files[cur_file],sep=""),header=TRUE,skip=toskip)
+    temp <- read.csv(paste('./data/',loc,'/HEFS86/',folder_list[i],'/',all_files[cur_file],sep=""),header=TRUE,skip=toskip)
     #the first row is for the current hour (12 GMT), so we drop that one
     if(str_split(temp$X[1],pattern=' ')[[1]][2]=='12:00:00'){
       temp <- temp[-1,]}
@@ -106,60 +106,13 @@ for(i in 1:n_sites){
     colnames(hefs_dly_out)<-c('Date',paste(col_names[i],c('',paste('.',1:(dim(hefs_dly_out)[2]-2),sep='')),sep=''))
     filename<-str_replace(all_files[cur_file],'hefs_hourly','daily')
     if(str_split(filename,'_')[[1]][2]!=col_names[i]){filename<-str_replace(filename,str_split(filename,'_')[[1]][2],col_names[i])}
-    write.csv(hefs_dly_out,file=paste('./out/',loc,'/HEFS/',col_names[i],'/',filename,sep=''),row.names = F)
+    write.csv(hefs_dly_out,file=paste('./out/',loc,'/HEFS86/',col_names[i],'/',filename,sep=''),row.names = F)
   }  
 }
 
-saveRDS(hefs_forward,paste('./out/',loc,'/hefs_forward.rds',sep=''))
+saveRDS(hefs_forward,paste('./out/',loc,'/hefs_forward_86.rds',sep=''))
 
-#----------------------Cumulative stats for HEFS------------------------------------
-
-#get forward looking cumulative totals from the hindcast
-hefs_forward_cumul <- apply(hefs_forward,c(1,2,3),FUN=sum)
-
-#also calculate the fractional values for the lead times
-hefs_forward_frac <- aperm(apply(hefs_forward,c(1,2,3),function(x){x/sum(x)}),c(2,3,4,1))
-
-#take ensemble average of cumulative totals
-hefs_forward_cumul_ens_avg <- apply(hefs_forward_cumul,c(1,3),FUN=mean)
-
-###define the residuals across ensemble members#
-hefs_forward_cumul_ens_resid <- hefs_forward_cumul
-for (j in 1:n_sites) {
-  for(e in 1:n_ens) {
-    hefs_forward_cumul_ens_resid[j,e,] <- hefs_forward_cumul[j,e,] - hefs_forward_cumul_ens_avg[j,]
-  }  
-}
-#--------------------------------------------------------------------------------------
-
-
-
-#----------------------Cumulative stats for obs----------------------------------------
-
-#####prepare observed data######
-#calculate cumulative observed flow totals
-#these are forward looking total, not including the current day
-#therefore, we cannot have a value for the first time entry. 
-#we only retain these values for dates where there are a full 15 days that follow
-obs_forward_all_leads <- array(NA,c(n_sites,length(1:(n_obs-leads)),leads))
-
-for (j in 1:n_sites) {
-  for(i in 1:(n_obs-leads)) {
-    obs_forward_all_leads[j,i,] <- obs[(i+1):(i+leads),j]
-  }
-}
-
-#these are the dates that PRECEDE the 15 day cumulative totals, i.e., 
-#on date t, here is the 15 day total over the NEXT 15 days
-ixx_obs_forward <- ixx_obs[1:(n_obs-leads)]
-n_obs_forward <- length(ixx_obs_forward)
-
-#subset cumul obs from to hindcast period
-obs_forward_all_leads_hind <- obs_forward_all_leads[,ixx_obs_forward%in%ixx_hefs,,drop=FALSE]
-#################################
-
-
-save.image(paste('out/',loc,'/data_prep_rdata.RData',sep=''))
+save.image(paste('./out/',loc,'/data_prep_rdata86.RData',sep=''))
 
 print(paste('datapro end',Sys.time()))
 

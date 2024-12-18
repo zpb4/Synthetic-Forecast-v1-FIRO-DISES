@@ -1,12 +1,13 @@
 #script to slice out smaller subset of output array for plotting on local machine
+loc = 'YRS'
+site = 'NBBC1'
+parm = 'a'
+cal_val_setup = 'cal'
 
-vers<-'bvar1-sged'
+syn_hefs_fwd <- readRDS(paste('out/',loc,'/syn_hefs_forward-',parm,'_',site,'_',cal_val_setup,'.rds',sep=''))
+syn_hefs_forward <- syn_hefs_fwd[1:10,,,,,drop=FALSE]
 
-syn_hefs_fwd <- readRDS(paste('out/syn_hefs_forward_',vers,'.rds',sep=''))
-#syn_hefs_fwd <- readRDS('out/syn_hefs_forward.rds')
-syn_hefs_forward <- syn_hefs_fwd[1:10,,,,]
-
-saveRDS(syn_hefs_forward,paste('out/syn_hefs_forward_',vers,'_plot-ens.rds',sep=''))
+saveRDS(syn_hefs_forward,paste('out/',loc,'/syn_hefs_forward-',parm,'_',site,'_',cal_val_setup,'_plot-ens.rds',sep=''))
 
 rm(list=ls());gc()
 
