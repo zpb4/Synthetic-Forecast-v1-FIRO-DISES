@@ -10,12 +10,16 @@ loc = 'ADO'
 keysite = 'ADOC1'   
 n_samp = 100   
 
+Brodeur, Z. P. (2025). ADO Synthetic Forecast Generation Dataset, HydroShare, https://doi.org/10.4211/hs.b6788237717c41e0bcc69bcaa851694f   
+
 ---
 Setup for forecast generation at Lake Mendocino system (LAM), including reservoir inflow (LAMC1) and downstream local flows at Ukiah and Hopland (UKAC1, HOPC1L). HEFS data is stored on a zip file [here](https://www.hydroshare.org/resource/e51d9821c8d84682b642eb0818ac3137/). Starting user-defined settings are:
   
 loc = 'LAM'   
 keysite = 'LAMC1'   
 n_samp = 100   
+
+Brodeur, Z. P. (2025). LAM Synthetic Forecast Generation Dataset, HydroShare, https://doi.org/10.4211/hs.e51d9821c8d84682b642eb0818ac3137    
 
 ---
 Setup for synthetic forecast generation at New Hogan Lake system (NHG), including reservoir inflow (NHGC1) and downstream Mud Slough site (MSGC1L). HEFS data is stored on a zip file [here](https://www.hydroshare.org/resource/dfa02b83bbde4ae3888ffafeb4446a5b/). Starting user-defined settings are:
@@ -24,7 +28,7 @@ loc = 'NHG'
 keysite = 'NHGC1'   
 n_samp = 100   
 
- 
+Brodeur, Z. P. (2025). NHG Synthetic Forecast generation dataset, HydroShare, https://doi.org/10.4211/hs.dfa02b83bbde4ae3888ffafeb4446a5b   
 
 ---
 Setup for forecast generation at selected sites of the Yuba-Feather system (YRS), including reservoir inflow at Lake Oroville (ORDC1) and New Bullards Bar (NBBC1) and downstream local flows at Marysville junction (MRYC1L). HEFS data is stored on a zip file [here](https://www.hydroshare.org/resource/29a7c696ee4e4766883078ca0d681884/). Starting user-defined settings are:
