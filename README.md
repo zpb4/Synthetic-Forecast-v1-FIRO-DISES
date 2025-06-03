@@ -37,6 +37,8 @@ loc = 'YRS'
 keysite = 'ORDC1'  and 'NBBC1' 
 n_samp = 100   
 
+Brodeur, Z. P. (2025). YRS Synthetic Forecast Generation Dataset, HydroShare, https://doi.org/10.4211/hs.29a7c696ee4e4766883078ca0d681884    
+
 ---
 #### Note: After downloading and extracting data from Hydroshare resources above, ensure local directory path for HEFS data is configured: './Synthetic-Forecast-v2-FIRO-DISES/data/_main_hindcast_location_/...', where '...' are the site specific sub-repos defined in 'Data' section below. Unzipping the files can result in duplication in the data path and this must be corrected for the code to function.
 
